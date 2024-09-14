@@ -4,15 +4,16 @@ import PackageDescription
 
 let package = Package(
     name: "currency-api",
-    platforms: [.iOS(.v15)],
+    platforms: [
+      .iOS(.v13),
+      .macOS(.v12),
+      .tvOS(.v13),
+      .watchOS(.v6),
+    ],
     products: [
         .library(
-            name: "CurrencyAPI",
-            targets: ["CurrencyAPI"]
-        ),
-        .library(
-            name: "CurrencyAPIData",
-            targets: ["CurrencyAPIData"]
+            name: "CurrencyAPICore",
+            targets: ["CurrencyAPICore"]
         ),
         .library(
             name: "CurrencyAPILive",
@@ -23,36 +24,27 @@ let package = Package(
             targets: ["CurrencyAPIStub"]
         ),
     ],
-    dependencies: [
-        .package(url: "https://github.com/pointfreeco/swift-overture", from: "0.5.0"),
-    ],
+    dependencies: [],
     targets: [
         .target(
-            name: "CurrencyAPI",
-            dependencies: [
-                "CurrencyAPIData",
-            ]
-        ),
-        .target(
-            name: "CurrencyAPIData",
-            dependencies: [
-            ]
+            name: "CurrencyAPICore",
+            dependencies: []
         ),
         .target(
             name: "CurrencyAPILive",
-            dependencies: [
-                "CurrencyAPI",
-                "CurrencyAPIData",
-                .product(name: "Overture", package: "swift-overture"),
-            ]
+            dependencies: ["CurrencyAPICore"]
         ),
         .target(
             name: "CurrencyAPIStub",
-            dependencies: [
-                "CurrencyAPI",
-                "CurrencyAPIData",
-                .product(name: "Overture", package: "swift-overture"),
-            ]
-        )
+            dependencies: ["CurrencyAPICore"]
+        ),
+        .testTarget(
+            name: "CurrencyAPICoreTests",
+            dependencies: ["CurrencyAPICore"]
+        ),
+        .testTarget(
+            name: "CurrencyAPILiveTests",
+            dependencies: ["CurrencyAPILive"]
+        ),
     ]
 )

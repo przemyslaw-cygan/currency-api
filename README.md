@@ -13,22 +13,20 @@ simple as adding it to your `Package.swift`:
 
 ``` swift
 dependencies: [
-  .package(url: "https://github.com/przemyslaw-cygan/currency-api", from: "0.0.1")
+  .package(url: "https://github.com/przemyslaw-cygan/currency-api", from: "0.1.0")
 ]
 ```
 
 And then adding the product to any target that needs access to the library:
 
 ```swift
-.product(name: "CurrencyAPI", package: "currency-api"),
-.product(name: "CurrencyAPIData", package: "currency-api"),
+.product(name: "CurrencyAPICore", package: "currency-api"),
 .product(name: "CurrencyAPILive", package: "currency-api"),
 .product(name: "CurrencyAPIStub", package: "currency-api"),
 ```
 
 ### Package products:
 * `CurrencyAPI` - client core
-* `CurrencyAPIData` - client data types (Currency, ExchangeRate, etc.)
 * `CurrencyAPILive` - live implementation
 * `CurrencyAPIStub` - stub implementation
 
@@ -37,61 +35,62 @@ And then adding the product to any target that needs access to the library:
 ### Live Client
 
 ```swift
-import CurrencyAPI
-import CurrencyAPILive
-
 let client = CurrencyAPI.Client.live(
-    baseURL: "https://api.currencyapi.com",
     apiKey: "<API_KEY>",
-    session: .shared
-)
-```
-
-You can provide `urlComponentsModifier` or `urlRequestModifier` to update `URLComponents` or `URLRequest` before sending.
-
-```swift
-import CurrencyAPI
-import CurrencyAPILive
-
-let client = CurrencyAPI.Client.live(
-    baseURL: "https://api.currencyapi.com",
-    apiKey: "<API_KEY>",
-    session: .shared,
-    urlComponentsModifier: {
-        $0.port = 123
-    },
-    urlRequestModifier: {
-        $0.timeoutInterval = 123
-    }
+    session: .shared // or any other instance
 )
 ```
 
 ### Stub Client
 
 ```swift
-import CurrencyAPI
-import CurrencyAPIStub
-
 let client = CurrencyAPI.Client.stub()
 ```
 
-You can provide `lastUpdatedAt` date (default: 1 January 1970 00:00:00) used in `ResponseMeta` in `HistoricalResponse`, `LatestResponse`, `ConvertResponse`.
+You can provide `date` (default: 2024-01-01) used:
+* in `ResponseMeta` for `HistoricalResponse`, `LatestResponse`, `ConvertResponse`.
+* for adjusting `ExchangeRate` value (see: `ExchangeRate.Stub.dateAdjustedValue`)
 
 ```swift
-import CurrencyAPI
-import CurrencyAPIStub
-
 let client = CurrencyAPI.Client.stub(lastUpdatedAt: .now)
 ```
+
+#### Helpers
+
+You can use composable helper methods `delayedCall` and `observedCall`:
+
+```swift
+var client = CurrencyAPI.Client.stub()
+client.currencies = Client.delayedCall(client.currencies, delay: 1)
+client.latest = Client.observedCall(
+    client.latest,
+    onRequest: { print("request:", $0) },
+    onResponse: { print("response:", $0) },
+    onError: { print("error:", $0) }
+)
+```
+
+#### Data
+
+You can use the built-in stub data:
+
+```swift
+let usd = Currency.Stub.USD
+let btc = Currency.Stub.BTC
+let btc2usd = ExchangeRate.Stub.exchangeRate(
+    baseCurrencyCode: usd.code,
+    currencyCode: btc.code,
+    date: .now
+)
+let allCurrencies = Currency.Stub.all
+```
+
 
 ### Custom
 
 You can always provide your own custom implementation according to your needs
 
 ```swift
-import CurrencyAPI
-import CurrencyAPIData
-
 let client = CurrencyAPI.Client(
     convert: { request in fatalError() },
     currencies: { request in
@@ -115,8 +114,8 @@ let client = CurrencyAPI.Client(
         )
     },
     convert: { request in fatalError() },
-    historical:  { request in fatalError() },
     historicalRange: { request in fatalError() },
+    historical:  { request in fatalError() },
     latest: { request in fatalError() },
     status: { request in fatalError() }
 )
@@ -148,17 +147,19 @@ let latestResponse = try await client.latest(LatestRequest(
     type: .fiat
 ))
 
-let historicalResponse = try await client.historical(HistoricalRequest(
-    date: .now,
+let historicalRangeResponse = try await client.historicalRange(HistoricalRangeRequest(
+    dateRange: DateRange(
+        start: .distantPast,
+        end: .now,
+        accuracy: .day
+    ),
     baseCurrency: "CHF",
     currencies: ["USD", "EUR"],
     type: .fiat
 ))
 
-let historicalRangeResponse = try await client.historicalRange(HistoricalRangeRequest(
-    dateStart: .distantPast,
-    dateEnd: .now,
-    accuracy: .day,
+let historicalResponse = try await client.historical(HistoricalRequest(
+    date: .now,
     baseCurrency: "CHF",
     currencies: ["USD", "EUR"],
     type: .fiat
