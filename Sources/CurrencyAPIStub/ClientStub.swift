@@ -1,159 +1,85 @@
 import Foundation
-import Overture
-import CurrencyAPI
-import CurrencyAPIData
+import CurrencyAPICore
 
-extension Client {
-    public static func stub(lastUpdatedAt: Date = Date(timeIntervalSince1970: 0)) -> Self {
-        let inteval: (RangeAccuracy?) -> TimeInterval = {
-            switch $0 {
-            case .day:
-                60 * 60 * 24
-            case .hour:
-                60 * 60
-            case .minute:
-                60
-            case .quarterHour:
-                60 * 15
-            case .none:
-                60 * 60 * 24
-            }
-        }
-
-        let dates: (HistoricalRangeRequest) -> [Date] = { request in
-            var dates: [Date] = []
-            var start = request.dateStart
-            while start <= request.dateEnd {
-                dates.append(start)
-                start.addTimeInterval(inteval(request.accuracy))
-            }
-            return dates
-        }
-
-        let dateMultiplier: (Date) -> (ExchangeRate) -> ExchangeRate = { date in { rate in
-            let multiplier = rate.value == 1 ? 1 : 1 + 0.1 *  sin(3.14 * date.timeIntervalSince1970)
-            return ExchangeRate(
-                code: rate.code,
-                value: multiplier * rate.value
-            )
-        }}
-
-        let rate: (Currency.ID) -> (Currency.ID) -> ExchangeRate? = curry(StubExchangeRates.exchangeRate)
-
-        func makeDictionary<T: Identifiable>(_ array: Array<T>) -> Dictionary<T.ID, T> {
-            array.reduce(into: [:]) { $0[$1.id] = $1 }
-        }
-
-        struct Filters: Equatable {
-            var currencies: [Currency.ID]?
-            var type: CurrencyType?
-
-            func match(_ item: Currency) -> Bool {
-                (self.type == nil || item.type == self.type)
-                && (self.currencies?.isEmpty != false || self.currencies!.contains(item.id))
-            }
-        }
-
-        return .init(
+public extension Client {
+    /// default date: 2024-01-01
+    static func stub(date: Date = Date(timeIntervalSince1970: 1704070800)) -> Client {
+        Client(
             convert: { request in
                 let value = (request.value as NSString).doubleValue
-                let base = request.baseCurrency ?? "USD"
-                let filters = Filters(
-                    currencies: request.currencies,
-                    type: request.type
-                )
-
-                let meta = ResponseMeta(lastUpdatedAt: lastUpdatedAt)
-                let data = StubCurrencies.all
-                    .filter(filters.match)
-                    .map(\.code)
-                    .compactMap(rate(base))
-                    .map { rate in
-                        ExchangeRate(
-                            code: rate.code,
-                            value: value * rate.value
-                        )
-                    }
+                let base = request.baseCurrency
+                let currencies = Currency.Stub.filtered(request.currencies, request.type)
 
                 return ConvertResponse(
-                    meta: meta,
-                    data: makeDictionary(data)
+                    meta: ResponseMeta(lastUpdatedAt: date),
+                    data: currencies.reduce(into: [:]) {
+                        $0[$1.code] = ExchangeRate.Stub.exchangeRate(
+                            baseCurrencyCode: base,
+                            currencyCode: $1.code,
+                            date: date,
+                            value: value
+                        )
+                    }
                 )
             },
             currencies: { request in
-                let filters = Filters(
-                    currencies: request.currencies,
-                    type: request.type
-                )
-
-                let data = StubCurrencies.all.filter(filters.match)
+                let currencies = Currency.Stub.filtered(request.currencies, request.type)
 
                 return CurrenciesResponse(
-                    data: makeDictionary(data)
-                )
-            },
-            historical: { request in
-                let base = request.baseCurrency ?? "USD"
-                let date = request.date
-                let filters = Filters(
-                    currencies: request.currencies,
-                    type: request.type
-                )
-
-                let meta = ResponseMeta(lastUpdatedAt: lastUpdatedAt)
-                let data = StubCurrencies.all
-                    .filter(filters.match)
-                    .map(\.code)
-                    .compactMap(rate(base))
-                    .map(dateMultiplier(date))
-
-                return HistoricalResponse(
-                    meta: meta,
-                    data: makeDictionary(data)
+                    data: currencies.reduce(into: [:]) {
+                        $0[$1.code] = $1
+                    }
                 )
             },
             historicalRange: { request in
-                let base = request.baseCurrency ?? "USD"
-                let filters = Filters(
-                    currencies: request.currencies,
-                    type: request.type
-                )
-
-                let currencies = StubCurrencies.all
-                    .filter(filters.match)
-                    .map(\.code)
-
-                let data = dates(request).map { date in
-                    let rates = currencies
-                        .compactMap(rate(base))
-                        .map(dateMultiplier(date))
-
-                    return RangeExchangeRates(
-                        datetime: date,
-                        currencies: makeDictionary(rates)
-                    )
-                }
+                let base = request.baseCurrency
+                let dates = request.dateRange.dates
+                let currencies = Currency.Stub.filtered(request.currencies, request.type)
 
                 return HistoricalRangeResponse(
-                    data: data
+                    data: dates.map { date in
+                        RangeExchangeRates(
+                            datetime: date,
+                            currencies: currencies.reduce(into: [:]) {
+                                $0[$1.code] = ExchangeRate.Stub.exchangeRate(
+                                    baseCurrencyCode: base,
+                                    currencyCode: $1.code,
+                                    date: date
+                                )
+                            }
+                        )
+                    }
+                )
+            },
+            historical: { request in
+                let base = request.baseCurrency
+                let date = request.date
+                let currencies = Currency.Stub.filtered(request.currencies, request.type)
+
+                return HistoricalResponse(
+                    meta: ResponseMeta(lastUpdatedAt: date),
+                    data: currencies.reduce(into: [:]) {
+                        $0[$1.code] = ExchangeRate.Stub.exchangeRate(
+                            baseCurrencyCode: base,
+                            currencyCode: $1.code,
+                            date: date
+                        )
+                    }
                 )
             },
             latest: { request in
-                let base = request.baseCurrency ?? "USD"
-                let filters = Filters(
-                    currencies: request.currencies,
-                    type: request.type
-                )
-
-                let meta = ResponseMeta(lastUpdatedAt: lastUpdatedAt)
-                let data = StubCurrencies.all
-                    .filter(filters.match)
-                    .map(\.code)
-                    .compactMap(rate(base))
+                let base = request.baseCurrency
+                let currencies = Currency.Stub.filtered(request.currencies, request.type)
 
                 return LatestResponse(
-                    meta: meta,
-                    data: makeDictionary(data)
+                    meta: ResponseMeta(lastUpdatedAt: date),
+                    data: currencies.reduce(into: [:]) {
+                        $0[$1.code] = ExchangeRate.Stub.exchangeRate(
+                            baseCurrencyCode: base,
+                            currencyCode: $1.code,
+                            date: date
+                        )
+                    }
                 )
             },
             status: { _ in
@@ -164,4 +90,31 @@ extension Client {
             }
         )
     }
+}
+
+public extension Client {
+    static func delayedCall<A, B>(
+        _ endpoint: @escaping Endpoint<A, B>,
+        delay: TimeInterval
+    ) -> (A) async throws -> B { { a in
+        try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+        return try await endpoint(a)
+    } }
+
+    static func observedCall<A, B>(
+        _ endpoint: @escaping Endpoint<A, B>,
+        onRequest: @escaping (A) -> Void,
+        onResponse: @escaping (B) -> Void,
+        onError: @escaping (Error) -> Void
+    ) -> (A) async throws -> B { { a in
+        do {
+            onRequest(a)
+            let result = try await endpoint(a)
+            onResponse(result)
+            return result
+        } catch {
+            onError(error)
+            throw error
+        }
+    } }
 }
